@@ -1,0 +1,42 @@
+# Same pattern as mcp-github / mcp-azure / mcp-k8s: synthetic resource
+# (mcp.tank-operator.io/servers named "argocd") gates SubjectAccessReview,
+# ClusterRole + RoleBinding names allowed callers explicitly.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kube-rbac-proxy
+  namespace: mcp-argocd
+data:
+  config.yaml: |
+    authorization:
+      resourceAttributes:
+        apiGroup: mcp.tank-operator.io
+        resource: servers
+        name: argocd
+        namespace: mcp-argocd
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mcp-argocd-invoker
+rules:
+  - apiGroups: ["mcp.tank-operator.io"]
+    resources: ["servers"]
+    resourceNames: ["argocd"]
+    # GET (SSE) + POST (JSON-RPC) — kube-rbac-proxy auto-derives the
+    # verb from the HTTP method.
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mcp-argocd-invoker
+  namespace: mcp-argocd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mcp-argocd-invoker
+subjects:
+  - kind: ServiceAccount
+    name: claude-session
+    namespace: tank-operator-sessions

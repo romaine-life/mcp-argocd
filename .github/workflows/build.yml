@@ -1,0 +1,69 @@
+name: Build mcp-argocd image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Dockerfile'
+      - 'pyproject.toml'
+      - 'src/**'
+      - '.github/workflows/build.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: mcp-argocd-build
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.ARM_CLIENT_ID }}
+          tenant-id: ${{ vars.ARM_TENANT_ID }}
+          subscription-id: ${{ vars.ARM_SUBSCRIPTION_ID }}
+
+      - name: ACR login
+        run: az acr login --name romainecr
+
+      - name: Compute tag
+        id: tag
+        run: echo "tag=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Build + push
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          docker build -t romainecr.azurecr.io/mcp-argocd:$TAG .
+          docker push romainecr.azurecr.io/mcp-argocd:$TAG
+          echo "### Pushed romainecr.azurecr.io/mcp-argocd:$TAG" >> $GITHUB_STEP_SUMMARY
+
+      - name: Bump chart image tag
+        run: |
+          tag="${{ steps.tag.outputs.tag }}"
+          sed -i -E "s|^(  tag: ).*$|\1\"${tag}\"|" chart/values.yaml
+
+          if git diff --quiet chart/values.yaml; then
+            echo "no tag change"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add chart/values.yaml
+          git commit -m "chart: bump image to ${tag} [skip ci]"
+          for i in 1 2 3; do
+            if git push; then exit 0; fi
+            git pull --rebase origin main
+          done
+          git push

@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-argocd
+  namespace: mcp-argocd
+spec:
+  replicas: 1
+  # Same reason as mcp-azure / mcp-github / mcp-k8s: single-node cluster
+  # can't fit two replicas during a rolling-update surge. Recreate keeps
+  # the rollout unstuck.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mcp-argocd
+  template:
+    metadata:
+      labels:
+        app: mcp-argocd
+    spec:
+      serviceAccountName: mcp-argocd
+      containers:
+        - name: mcp-argocd
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: upstream
+              containerPort: {{ .Values.upstreamPort }}
+          env:
+            - name: PORT
+              value: "{{ .Values.upstreamPort }}"
+            - name: ARGOCD_SERVER_URL
+              value: "{{ .Values.dex.serverUrl }}"
+            - name: ARGOCD_DEX_CONNECTOR_ID
+              value: "{{ .Values.dex.connectorId }}"
+            - name: ARGOCD_DEX_CLIENT_ID
+              value: "{{ .Values.dex.exchangeClientId }}"
+            - name: ARGOCD_DEX_SA_TOKEN_PATH
+              value: /var/run/secrets/argocd-dex/token
+          volumeMounts:
+            # Projected token with audience matching the aks-sa Dex
+            # connector's clientID. This is what dex.py reads on each
+            # exchange — kubelet refreshes the file when the token is
+            # within 80% of expiry, so the on-disk copy is always fresh.
+            - name: argocd-dex-token
+              mountPath: /var/run/secrets/argocd-dex
+              readOnly: true
+          readinessProbe:
+            # Server binds 127.0.0.1 (loopback only) — exec probe runs
+            # inside the container's netns so localhost resolves.
+            exec:
+              command: ["python", "-c", "import socket,sys; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1', {{ .Values.upstreamPort }})); s.close()"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+        - name: kube-rbac-proxy
+          image: "{{ .Values.proxy.image.repository }}:{{ .Values.proxy.image.tag }}"
+          imagePullPolicy: {{ .Values.proxy.image.pullPolicy }}
+          args:
+            - --insecure-listen-address=0.0.0.0:{{ .Values.proxy.port }}
+            - --upstream=http://127.0.0.1:{{ .Values.upstreamPort }}/
+            - --config-file=/etc/kube-rbac-proxy/config.yaml
+            - --v=2
+          ports:
+            - name: proxy
+              containerPort: {{ .Values.proxy.port }}
+          volumeMounts:
+            - name: proxy-config
+              mountPath: /etc/kube-rbac-proxy
+              readOnly: true
+          resources:
+            {{- toYaml .Values.proxyResources | nindent 12 }}
+      volumes:
+        - name: proxy-config
+          configMap:
+            name: kube-rbac-proxy
+        - name: argocd-dex-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: {{ .Values.dex.saTokenAudience }}
+                  expirationSeconds: 3600
+                  path: token

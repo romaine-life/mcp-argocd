@@ -1,0 +1,4 @@
+apiVersion: v2
+name: mcp-argocd
+version: 0.1.0
+description: Read-only ArgoCD MCP server. Outbound auth via Dex token-exchange (projected SA token → ArgoCD bearer); incoming auth via kube-rbac-proxy K8s SA TokenReview.

@@ -1,0 +1,50 @@
+# ============================================================================
+# mcp-argocd values
+# ============================================================================
+# No KV creds. Outbound auth to ArgoCD uses a projected SA token (audience
+# matches the `argocd-mcp` Dex client) exchanged via /api/dex/token for an
+# ArgoCD bearer. The aks-sa Dex connector + RBAC entry live in the argocd
+# Helm release values in infra-bootstrap.
+
+image:
+  repository: romainecr.azurecr.io/mcp-argocd
+  # SHA-pinned. .github/workflows/build.yml rewrites this tag on every push to main
+  # via a `[skip ci]` follow-up commit. Quoted so all-digit short-SHAs don't
+  # become floats — see reference_yaml_tag_quoting.md.
+  tag: "7a97f39"
+  pullPolicy: IfNotPresent
+
+# Loopback-only port the Python uvicorn server listens on.
+upstreamPort: 8080
+
+# Dex token-exchange wiring. These are env vars baked into the deployment;
+# bumping any of them is a chart-level change, not a code change.
+dex:
+  serverUrl: http://argocd-server.argocd
+  connectorId: aks-sa
+  # The audience set on the projected SA token has to match the connector's
+  # `clientID` so Dex's OIDC verifier accepts it. `client_id` in the
+  # token-exchange request is a separate Dex client (built-in argo-cd-cli).
+  saTokenAudience: argocd-mcp
+  exchangeClientId: argo-cd-cli
+
+proxy:
+  image:
+    repository: quay.io/brancz/kube-rbac-proxy
+    tag: v0.18.2
+    pullPolicy: IfNotPresent
+  port: 8443
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 128Mi
+
+proxyResources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 64Mi
