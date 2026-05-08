@@ -44,6 +44,11 @@ def build_app() -> Starlette:
     async def healthz(_: Request) -> Response:
         return Response("ok", media_type="text/plain")
 
+    async def delete_session(_: Request) -> Response:
+        # FastMCP stateless mode returns 405 for DELETE, but Claude Code's MCP
+        # client treats 405 as fatal. Return 200 so it can reconnect cleanly.
+        return Response(status_code=200)
+
     @asynccontextmanager
     async def lifespan(_app: Starlette):
         async with mcp.session_manager.run():
@@ -52,6 +57,7 @@ def build_app() -> Starlette:
     return Starlette(
         routes=[
             Route("/healthz", healthz),
+            Route("/", delete_session, methods=["DELETE"]),
             Mount("/", app=mcp.streamable_http_app()),
         ],
         lifespan=lifespan,
