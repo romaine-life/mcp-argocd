@@ -8,6 +8,12 @@ dependencies = [
     "mcp>=1.18.0",
     "starlette>=0.40.0",
     "uvicorn>=0.30.0",
+    "pyjwt[crypto]>=2.8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
 ]
 
 [build-system]
