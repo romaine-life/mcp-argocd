@@ -8,16 +8,19 @@ even if a tool wrapper were bypassed, the bearer can't write anything else.
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-from .dex import ARGOCD_SERVER_URL, get_bearer
+from .dex import ARGOCD_SERVER_URL, get_bearer, invalidate_bearer
 
 
 _TIMEOUT_SECONDS = 30
+_RETRYABLE_AUTH_STATUS = 401
+logger = logging.getLogger(__name__)
 
 
 def _clamp_limit(limit: int | None, *, default: int, maximum: int = 500) -> int:
@@ -44,27 +47,47 @@ def _app_summary(app: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _client() -> httpx.Client:
+def _client(bearer: str) -> httpx.Client:
     return httpx.Client(
         base_url=ARGOCD_SERVER_URL,
-        headers={"Authorization": f"Bearer {get_bearer()}"},
+        headers={"Authorization": f"Bearer {bearer}"},
         timeout=_TIMEOUT_SECONDS,
     )
 
 
+def _request(
+    method: str,
+    path: str,
+    *,
+    ok: set[int],
+    params: dict[str, Any] | None = None,
+    json_body: dict[str, Any] | None = None,
+) -> httpx.Response:
+    bearer = get_bearer()
+    for attempt in range(2):
+        with _client(bearer) as c:
+            resp = c.request(method, path, params=params, json=json_body)
+        if resp.status_code != _RETRYABLE_AUTH_STATUS or attempt == 1:
+            break
+        logger.info(
+            "ArgoCD %s %s returned 401; invalidating cached bearer and retrying once",
+            method,
+            path,
+        )
+        invalidate_bearer(bearer)
+        bearer = get_bearer()
+
+    if resp.status_code not in ok:
+        raise RuntimeError(f"ArgoCD {method} {path} -> {resp.status_code} {resp.text}")
+    return resp
+
+
 def _get(path: str, params: dict[str, Any] | None = None) -> Any:
-    with _client() as c:
-        resp = c.get(path, params=params)
-    if resp.status_code != 200:
-        raise RuntimeError(f"ArgoCD GET {path} -> {resp.status_code} {resp.text}")
-    return resp.json()
+    return _request("GET", path, ok={200}, params=params).json()
 
 
 def _post(path: str, json_body: dict[str, Any] | None = None) -> Any:
-    with _client() as c:
-        resp = c.post(path, json=json_body)
-    if resp.status_code not in (200, 201):
-        raise RuntimeError(f"ArgoCD POST {path} -> {resp.status_code} {resp.text}")
+    resp = _request("POST", path, ok={200, 201}, json_body=json_body)
     return resp.json() if resp.text else {}
 
 
