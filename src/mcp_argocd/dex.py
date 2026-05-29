@@ -87,6 +87,20 @@ class DexTokenProvider:
             self._cached = self._exchange()
             return self._cached.bearer
 
+    def invalidate(self, bearer: str | None = None) -> None:
+        """Clear the cached bearer.
+
+        If `bearer` is provided, only clear when the cached token is still that
+        exact value. That avoids one request invalidating a newer token another
+        request already exchanged after seeing the same 401.
+        """
+        with self._lock:
+            if self._cached is None:
+                return
+            if bearer is not None and self._cached.bearer != bearer:
+                return
+            self._cached = None
+
     def _exchange(self) -> _CachedToken:
         sa_token = _read_sa_token()
         resp = httpx.post(
@@ -122,3 +136,7 @@ _provider = DexTokenProvider()
 
 def get_bearer() -> str:
     return _provider.get()
+
+
+def invalidate_bearer(bearer: str | None = None) -> None:
+    _provider.invalidate(bearer)
