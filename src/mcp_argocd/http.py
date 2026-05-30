@@ -21,9 +21,9 @@ to this process, layer 1 is still gating connectivity), but when
 present the JWT must verify or the request is 401'd. Half-trusting
 a malformed JWT would be worse than ignoring the header entirely.
 
-Outbound auth (to ArgoCD) is the inverse: we mint a fresh ArgoCD bearer
-per session via Dex token-exchange against our projected SA token. See
-dex.py.
+Outbound auth (to ArgoCD) is the inverse: we exchange our projected SA token
+at auth.romaine.life's /api/auth/exchange/k8s for a role=service JWT and
+present it directly to the ArgoCD API. See auth_exchange.py.
 """
 
 import logging

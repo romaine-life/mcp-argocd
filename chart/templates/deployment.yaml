@@ -30,20 +30,18 @@ spec:
             - name: PORT
               value: "{{ .Values.upstreamPort }}"
             - name: ARGOCD_SERVER_URL
-              value: "{{ .Values.dex.serverUrl }}"
-            - name: ARGOCD_DEX_CONNECTOR_ID
-              value: "{{ .Values.dex.connectorId }}"
-            - name: ARGOCD_DEX_CLIENT_ID
-              value: "{{ .Values.dex.exchangeClientId }}"
-            - name: ARGOCD_DEX_SA_TOKEN_PATH
-              value: /var/run/secrets/argocd-dex/token
+              value: "{{ .Values.authExchange.argocdServerUrl }}"
+            - name: AUTH_EXCHANGE_URL
+              value: "{{ .Values.authExchange.exchangeUrl }}"
+            - name: AUTH_SA_TOKEN_PATH
+              value: /var/run/secrets/auth-romaine/token
           volumeMounts:
-            # Projected token with audience matching the aks-sa Dex
-            # connector's clientID. This is what dex.py reads on each
-            # exchange — kubelet refreshes the file when the token is
-            # within 80% of expiry, so the on-disk copy is always fresh.
-            - name: argocd-dex-token
-              mountPath: /var/run/secrets/argocd-dex
+            # Projected token with audience https://auth.romaine.life. This is
+            # what auth_exchange.py reads on each exchange — kubelet refreshes
+            # the file when the token is within 80% of expiry, so the on-disk
+            # copy is always fresh.
+            - name: auth-romaine-token
+              mountPath: /var/run/secrets/auth-romaine
               readOnly: true
           readinessProbe:
             # Server binds 127.0.0.1 (loopback only) — exec probe runs
@@ -75,10 +73,10 @@ spec:
         - name: proxy-config
           configMap:
             name: kube-rbac-proxy
-        - name: argocd-dex-token
+        - name: auth-romaine-token
           projected:
             sources:
               - serviceAccountToken:
-                  audience: {{ .Values.dex.saTokenAudience }}
+                  audience: {{ .Values.authExchange.saTokenAudience }}
                   expirationSeconds: 3600
                   path: token

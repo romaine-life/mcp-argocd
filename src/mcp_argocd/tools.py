@@ -15,7 +15,7 @@ from typing import Any
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-from .dex import ARGOCD_SERVER_URL, get_bearer, invalidate_bearer
+from .auth_exchange import ARGOCD_SERVER_URL, get_bearer, invalidate_bearer
 
 
 _TIMEOUT_SECONDS = 30
