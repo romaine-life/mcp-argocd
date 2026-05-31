@@ -1,10 +1,12 @@
 # ============================================================================
 # mcp-argocd values
 # ============================================================================
-# No KV creds. Outbound auth to ArgoCD uses a projected SA token (audience
-# matches the `argocd-mcp` Dex client) exchanged via /api/dex/token for an
-# ArgoCD bearer. The aks-sa Dex connector + RBAC entry live in the argocd
-# Helm release values in infra-bootstrap.
+# No KV creds. Outbound auth to ArgoCD: a projected SA token (audience
+# https://auth.romaine.life) is exchanged at auth.romaine.life's
+# /api/auth/exchange/k8s for a role=service JWT, which is presented directly to
+# the ArgoCD API. argocd-server verifies it against the auth.romaine.life JWKS
+# (oidc.config) and the `g, svc:mcp-argocd:mcp-argocd, role:mcp-argocd` RBAC
+# entry in the argocd Helm release values in infra-bootstrap maps it.
 
 image:
   repository: romainecr.azurecr.io/mcp-argocd
@@ -17,16 +19,17 @@ image:
 # Loopback-only port the Python uvicorn server listens on.
 upstreamPort: 8080
 
-# Dex token-exchange wiring. These are env vars baked into the deployment;
-# bumping any of them is a chart-level change, not a code change.
-dex:
-  serverUrl: http://argocd-server.argocd
-  connectorId: aks-sa
-  # The audience set on the projected SA token has to match the connector's
-  # `clientID` so Dex's OIDC verifier accepts it. `client_id` in the
-  # token-exchange request is a separate Dex client (built-in argo-cd-cli).
-  saTokenAudience: argocd-mcp
-  exchangeClientId: argo-cd-cli
+# auth.romaine.life exchange wiring. These are env vars baked into the
+# deployment; bumping any of them is a chart-level change, not a code change.
+authExchange:
+  # ArgoCD API base URL the minted service token is presented to.
+  argocdServerUrl: http://argocd-server.argocd
+  # auth.romaine.life k8s SA-token exchange endpoint.
+  exchangeUrl: https://auth.romaine.life/api/auth/exchange/k8s
+  # Audience pinned on the projected SA token. Must equal auth.romaine.life's
+  # K8S_SERVICE_AUDIENCE so its verifier accepts the token; a token scoped to
+  # this audience can't be replayed against any other JWT-validating service.
+  saTokenAudience: https://auth.romaine.life
 
 proxy:
   image:
